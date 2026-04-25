@@ -3,16 +3,20 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   createItem,
+  createTelegramLinkCode,
   deleteItem,
   fetchMe,
   fetchMeta,
+  getTelegramLinkStatus,
   listItems,
   login,
   logout,
   register,
+  unlinkTelegram,
   updateItem,
   type Item,
   type LocaleCode,
+  type TelegramLinkStatus,
   type User,
 } from "./api/client";
 
@@ -27,14 +31,18 @@ const authMode = ref<AuthMode>("register");
 const metaState = ref<APIState>("idle");
 const sessionState = ref<APIState>("idle");
 const itemsState = ref<APIState>("idle");
+const telegramState = ref<APIState>("idle");
 const authError = ref("");
 const authSuccess = ref("");
 const itemError = ref("");
 const itemSuccess = ref("");
+const telegramError = ref("");
+const telegramSuccess = ref("");
 const apiLang = ref<LocaleCode>("ru");
 const token = ref(window.localStorage.getItem(authTokenKey) ?? "");
 const currentUser = ref<User | null>(null);
 const items = ref<Item[]>([]);
+const telegramLink = ref<TelegramLinkStatus | null>(null);
 const itemFilter = ref<ItemFilter>("all");
 const editingItemID = ref("");
 const deletingItemID = ref("");
@@ -89,6 +97,16 @@ const syncSummary = computed(() => {
   };
 });
 
+const telegramDeepLink = computed(() => {
+  const botUsername = telegramLink.value?.bot_username;
+  const code = telegramLink.value?.pending_code?.code;
+  if (!botUsername || !code || botUsername === "your_bot_username") {
+    return "";
+  }
+
+  return `https://t.me/${botUsername}?start=${code}`;
+});
+
 async function loadMeta() {
   metaState.value = "loading";
 
@@ -131,13 +149,33 @@ async function restoreSession() {
     currentUser.value = response.user;
     sessionState.value = "ready";
     setLocale(response.user.lang);
-    await loadItems();
+    await Promise.all([loadItems(), loadTelegramLink()]);
   } catch (error) {
     saveToken("");
     currentUser.value = null;
     items.value = [];
+    telegramLink.value = null;
     sessionState.value = "error";
     authError.value = errorMessage(error);
+  }
+}
+
+async function loadTelegramLink() {
+  if (!token.value) {
+    telegramLink.value = null;
+    telegramState.value = "idle";
+    return;
+  }
+
+  telegramState.value = "loading";
+  telegramError.value = "";
+
+  try {
+    telegramLink.value = await getTelegramLinkStatus(token.value);
+    telegramState.value = "ready";
+  } catch (error) {
+    telegramState.value = "error";
+    telegramError.value = errorMessage(error);
   }
 }
 
@@ -214,7 +252,7 @@ async function submitAuth() {
 
     authForm.password = "";
     sessionState.value = "ready";
-    await loadItems();
+    await Promise.all([loadItems(), loadTelegramLink()]);
   } catch (error) {
     sessionState.value = "error";
     authError.value = errorMessage(error);
@@ -271,6 +309,56 @@ async function loadItems() {
   } catch (error) {
     itemsState.value = "error";
     itemError.value = errorMessage(error);
+  }
+}
+
+async function generateTelegramCode() {
+  if (!token.value) {
+    return;
+  }
+
+  telegramState.value = "loading";
+  telegramError.value = "";
+  telegramSuccess.value = "";
+
+  try {
+    const response = await createTelegramLinkCode(token.value);
+    telegramLink.value = {
+      ...(telegramLink.value ?? { connected: false }),
+      bot_username: response.bot_username,
+      connected: false,
+      pending_code: {
+        code: response.code,
+        user_id: currentUser.value?.id ?? "",
+        expires_at: response.expires_at,
+      },
+      telegram_chat: telegramLink.value?.telegram_chat,
+      telegram_username: telegramLink.value?.telegram_username,
+    };
+    telegramState.value = "ready";
+    telegramSuccess.value = t("app.telegramCodeCreated");
+  } catch (error) {
+    telegramState.value = "error";
+    telegramError.value = errorMessage(error);
+  }
+}
+
+async function disconnectTelegram() {
+  if (!token.value) {
+    return;
+  }
+
+  telegramState.value = "loading";
+  telegramError.value = "";
+  telegramSuccess.value = "";
+
+  try {
+    await unlinkTelegram(token.value);
+    await loadTelegramLink();
+    telegramSuccess.value = t("app.telegramDisconnected");
+  } catch (error) {
+    telegramState.value = "error";
+    telegramError.value = errorMessage(error);
   }
 }
 
@@ -350,9 +438,11 @@ async function logoutCurrentUser() {
   saveToken("");
   currentUser.value = null;
   items.value = [];
+  telegramLink.value = null;
   sessionState.value = "idle";
   authSuccess.value = "";
   itemSuccess.value = "";
+  telegramSuccess.value = "";
 }
 
 function switchMode(mode: AuthMode) {
@@ -419,6 +509,9 @@ onMounted(() => {
         <span class="pill neutral">{{ t("app.totalItems") }}: {{ syncSummary.total }}</span>
         <span class="pill neutral">{{ t("app.totalReminders") }}: {{ syncSummary.reminders }}</span>
         <span class="pill neutral">{{ t("app.totalNotes") }}: {{ syncSummary.notes }}</span>
+        <span class="pill" :class="telegramLink?.connected ? 'ready' : 'idle'">
+          {{ telegramLink?.connected ? t("app.telegramConnected") : t("app.telegramDisconnectedShort") }}
+        </span>
         <span v-if="currentUser" class="pill warm">{{ currentUser.email }}</span>
       </div>
     </section>
@@ -472,50 +565,115 @@ onMounted(() => {
 
       <section class="card">
         <div class="card-head">
-          <h2>{{ t("app.newItemTitle") }}</h2>
-          <span class="subtle">{{ t("app.newItemHint") }}</span>
+          <h2>{{ t("app.telegramTitle") }}</h2>
+          <div class="toolbar">
+            <button class="ghost" :disabled="!isAuthenticated || telegramState === 'loading'" @click="loadTelegramLink">
+              {{ t("app.refresh") }}
+            </button>
+            <button
+              v-if="telegramLink?.connected"
+              class="danger"
+              :disabled="telegramState === 'loading'"
+              @click="disconnectTelegram"
+            >
+              {{ t("app.telegramDisconnect") }}
+            </button>
+            <button
+              v-else
+              class="primary"
+              :disabled="!isAuthenticated || telegramState === 'loading'"
+              @click="generateTelegramCode"
+            >
+              {{ t("app.telegramGenerateCode") }}
+            </button>
+          </div>
         </div>
 
-        <div class="form-stack">
-          <label class="field">
-            <span>{{ t("app.itemTitle") }}</span>
-            <input
-              v-model="itemForm.title"
-              type="text"
-              :placeholder="t('app.itemTitlePlaceholder')"
-              :disabled="!isAuthenticated"
-            />
-          </label>
+        <p class="subtle">{{ t("app.telegramHint") }}</p>
+        <p v-if="telegramError" class="feedback error">{{ telegramError }}</p>
+        <p v-if="telegramSuccess" class="feedback success">{{ telegramSuccess }}</p>
+        <p v-if="!isAuthenticated" class="feedback">{{ t("app.authRequired") }}</p>
 
-          <label class="field">
-            <span>{{ t("app.itemBody") }}</span>
-            <textarea
-              v-model="itemForm.body"
-              rows="4"
-              :placeholder="t('app.itemBodyPlaceholder')"
-              :disabled="!isAuthenticated"
-            />
-          </label>
+        <div v-else-if="telegramLink?.connected" class="telegram-panel">
+          <p><strong>{{ t("app.telegramConnected") }}</strong></p>
+          <p v-if="telegramLink.telegram_username">@{{ telegramLink.telegram_username }}</p>
+          <p v-if="telegramLink.telegram_chat">{{ t("app.telegramChat") }}: {{ telegramLink.telegram_chat }}</p>
+        </div>
 
-          <label class="field">
-            <span>{{ t("app.remindAt") }}</span>
-            <input v-model="itemForm.remindAt" type="datetime-local" :disabled="!isAuthenticated" />
-          </label>
-
-          <label class="checkbox">
-            <input v-model="itemForm.deliverToTelegram" type="checkbox" :disabled="!isAuthenticated" />
-            <span>{{ t("app.deliverToTelegram") }}</span>
-          </label>
-
-          <p v-if="itemError" class="feedback error">{{ itemError }}</p>
-          <p v-if="itemSuccess" class="feedback success">{{ itemSuccess }}</p>
-          <p v-if="!isAuthenticated" class="feedback">{{ t("app.authRequired") }}</p>
-
-          <button class="primary" :disabled="!isAuthenticated || itemsState === 'loading'" @click="submitItem">
-            {{ t("app.createItem") }}
-          </button>
+        <div v-else class="telegram-panel">
+          <p>{{ t("app.telegramStep1") }}</p>
+          <p v-if="telegramLink?.pending_code">
+            <strong>{{ t("app.telegramCode") }}:</strong> <code>{{ telegramLink.pending_code.code }}</code>
+          </p>
+          <p v-if="telegramLink?.pending_code">
+            {{ t("app.telegramStep2") }}
+            <code>/start {{ telegramLink.pending_code.code }}</code>
+          </p>
+          <p v-if="telegramLink?.pending_code">
+            {{ t("app.telegramStep3") }}
+            <strong>{{ formatDate(telegramLink.pending_code.expires_at) }}</strong>
+          </p>
+          <p v-if="telegramLink?.bot_username">
+            {{ t("app.telegramBot") }}:
+            <strong>@{{ telegramLink.bot_username }}</strong>
+          </p>
+          <p v-if="telegramDeepLink">
+            <a :href="telegramDeepLink" target="_blank" rel="noreferrer">{{ t("app.telegramOpenBot") }}</a>
+          </p>
         </div>
       </section>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>{{ t("app.newItemTitle") }}</h2>
+        <span class="subtle">{{ t("app.newItemHint") }}</span>
+      </div>
+
+      <div class="form-stack">
+        <label class="field">
+          <span>{{ t("app.itemTitle") }}</span>
+          <input
+            v-model="itemForm.title"
+            type="text"
+            :placeholder="t('app.itemTitlePlaceholder')"
+            :disabled="!isAuthenticated"
+          />
+        </label>
+
+        <label class="field">
+          <span>{{ t("app.itemBody") }}</span>
+          <textarea
+            v-model="itemForm.body"
+            rows="4"
+            :placeholder="t('app.itemBodyPlaceholder')"
+            :disabled="!isAuthenticated"
+          />
+        </label>
+
+        <label class="field">
+          <span>{{ t("app.remindAt") }}</span>
+          <input v-model="itemForm.remindAt" type="datetime-local" :disabled="!isAuthenticated" />
+        </label>
+
+        <label class="checkbox">
+          <input
+            v-model="itemForm.deliverToTelegram"
+            type="checkbox"
+            :disabled="!isAuthenticated || !telegramLink?.connected"
+          />
+          <span>{{ t("app.deliverToTelegram") }}</span>
+        </label>
+
+        <p v-if="itemError" class="feedback error">{{ itemError }}</p>
+        <p v-if="itemSuccess" class="feedback success">{{ itemSuccess }}</p>
+        <p v-if="!isAuthenticated" class="feedback">{{ t("app.authRequired") }}</p>
+        <p v-else-if="!telegramLink?.connected" class="feedback">{{ t("app.telegramDeliveryHint") }}</p>
+
+        <button class="primary" :disabled="!isAuthenticated || itemsState === 'loading'" @click="submitItem">
+          {{ t("app.createItem") }}
+        </button>
+      </div>
     </section>
 
     <section class="card">
@@ -560,7 +718,7 @@ onMounted(() => {
               </label>
 
               <label class="checkbox">
-                <input v-model="editForm.deliverToTelegram" type="checkbox" />
+                <input v-model="editForm.deliverToTelegram" type="checkbox" :disabled="!telegramLink?.connected" />
                 <span>{{ t("app.deliverToTelegram") }}</span>
               </label>
 

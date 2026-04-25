@@ -8,6 +8,7 @@ export interface User {
   created_at: string;
   last_login_at: string;
   telegram_chat?: string;
+  telegram_username?: string;
 }
 
 export interface Item {
@@ -24,6 +25,19 @@ export interface Item {
   deleted_at?: string | null;
   source: string;
   deliver_to_telegram: boolean;
+}
+
+export interface TelegramLinkStatus {
+  connected: boolean;
+  bot_username: string;
+  telegram_chat?: string;
+  telegram_username?: string;
+  pending_code?: {
+    code: string;
+    user_id: string;
+    expires_at: string;
+    used_at?: string | null;
+  };
 }
 
 interface APIErrorPayload {
@@ -165,6 +179,35 @@ export async function updateItem(
 export async function deleteItem(token: string, itemID: string) {
   return request<{ ok: boolean }>(
     `/v1/items/${itemID}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
+export async function getTelegramLinkStatus(token: string) {
+  return request<TelegramLinkStatus>("/v1/telegram/link", {}, token);
+}
+
+export async function createTelegramLinkCode(token: string) {
+  return request<{
+    code: string;
+    expires_at: string;
+    bot_username: string;
+  }>(
+    "/v1/telegram/link-code",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+    token,
+  );
+}
+
+export async function unlinkTelegram(token: string) {
+  return request<{ ok: boolean }>(
+    "/v1/telegram/link",
     {
       method: "DELETE",
     },
