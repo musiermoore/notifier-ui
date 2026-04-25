@@ -28,7 +28,6 @@ const authTokenKey = "auth_token";
 const { locale, t } = useI18n();
 
 const authMode = ref<AuthMode>("register");
-const metaState = ref<APIState>("idle");
 const sessionState = ref<APIState>("idle");
 const itemsState = ref<APIState>("idle");
 const telegramState = ref<APIState>("idle");
@@ -38,7 +37,6 @@ const itemError = ref("");
 const itemSuccess = ref("");
 const telegramError = ref("");
 const telegramSuccess = ref("");
-const apiLang = ref<LocaleCode>("ru");
 const token = ref(window.localStorage.getItem(authTokenKey) ?? "");
 const currentUser = ref<User | null>(null);
 const items = ref<Item[]>([]);
@@ -69,7 +67,6 @@ const editForm = reactive({
 
 const isAuthenticated = computed(() => token.value !== "" && currentUser.value !== null);
 const isRegisterMode = computed(() => authMode.value === "register");
-
 const filteredItems = computed(() => {
   const base = items.value.filter((item) => !item.deleted_at);
   const now = Date.now();
@@ -86,17 +83,6 @@ const filteredItems = computed(() => {
   }
 });
 
-const syncSummary = computed(() => {
-  const reminders = items.value.filter((item) => item.remind_at && !item.deleted_at).length;
-  const notes = items.value.filter((item) => !item.remind_at && !item.deleted_at).length;
-
-  return {
-    total: items.value.filter((item) => !item.deleted_at).length,
-    reminders,
-    notes,
-  };
-});
-
 const telegramDeepLink = computed(() => {
   const botUsername = telegramLink.value?.bot_username;
   const code = telegramLink.value?.pending_code?.code;
@@ -108,15 +94,9 @@ const telegramDeepLink = computed(() => {
 });
 
 async function loadMeta() {
-  metaState.value = "loading";
-
   try {
-    const meta = await fetchMeta();
-    apiLang.value = meta.default_language;
-    metaState.value = "ready";
-  } catch {
-    metaState.value = "error";
-  }
+    await fetchMeta();
+  } catch {}
 }
 
 function setLocale(nextLocale: LocaleCode) {
@@ -504,14 +484,10 @@ onMounted(() => {
       </div>
 
       <div class="status-row">
-        <span class="pill" :class="metaState">{{ t(`app.meta.${metaState}`) }}</span>
-        <span class="pill neutral">{{ t("app.defaultLang") }}: {{ apiLang }}</span>
-        <span class="pill neutral">{{ t("app.totalItems") }}: {{ syncSummary.total }}</span>
-        <span class="pill neutral">{{ t("app.totalReminders") }}: {{ syncSummary.reminders }}</span>
-        <span class="pill neutral">{{ t("app.totalNotes") }}: {{ syncSummary.notes }}</span>
         <span class="pill" :class="telegramLink?.connected ? 'ready' : 'idle'">
           {{ telegramLink?.connected ? t("app.telegramConnected") : t("app.telegramDisconnectedShort") }}
         </span>
+        <span v-if="isAuthenticated" class="pill neutral">{{ t("app.itemsCount") }}: {{ filteredItems.length }}</span>
         <span v-if="currentUser" class="pill warm">{{ currentUser.email }}</span>
       </div>
     </section>
@@ -520,7 +496,7 @@ onMounted(() => {
       <section class="card auth-card">
         <div class="card-head">
           <h2>{{ t("app.authTitle") }}</h2>
-          <div class="segmented">
+          <div v-if="!isAuthenticated" class="segmented">
             <button :class="{ active: authMode === 'register' }" @click="switchMode('register')">
               {{ t("app.register") }}
             </button>
@@ -558,7 +534,7 @@ onMounted(() => {
           <p class="profile-name">{{ currentUser?.name }}</p>
           <p>{{ currentUser?.email }}</p>
           <p>{{ t("app.profileLang") }}: {{ currentUser?.lang }}</p>
-          <p>{{ t("app.syncHint") }}</p>
+          <p>{{ t("app.accountHint") }}</p>
           <button class="ghost" @click="logoutCurrentUser">{{ t("app.logout") }}</button>
         </div>
       </section>
@@ -693,7 +669,6 @@ onMounted(() => {
         </div>
       </div>
 
-      <p class="feedback">{{ t("app.syncWindowHint") }}</p>
       <p v-if="itemsState === 'loading'" class="feedback">{{ t("app.itemsLoading") }}</p>
       <p v-else-if="itemError" class="feedback error">{{ itemError }}</p>
       <p v-else-if="!filteredItems.length" class="feedback">{{ t("app.itemsEmpty") }}</p>

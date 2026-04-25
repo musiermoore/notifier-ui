@@ -1,8 +1,8 @@
 {
   "app": {
-    "badge": "Working MVP",
+    "badge": "Personal reminders",
     "title": "Notifier",
-    "subtitle": "The web client can already register a user, sign in, and manage notes and reminders through the API.",
+    "subtitle": "Notes and reminders in one place: in the browser, on desktop, and in Telegram.",
     "authTitle": "Account",
     "telegramTitle": "Telegram connection",
     "register": "Register",
@@ -18,7 +18,7 @@
     "profileLang": "Language",
     "registered": "Account created. You can keep going.",
     "loggedIn": "Signed in successfully.",
-    "telegramHint": "Link Telegram to your account so reminders can be delivered there and the connection can be managed from the web UI.",
+    "telegramHint": "Connect Telegram to receive reminders there and open the bot directly from the app.",
     "telegramGenerateCode": "Generate code",
     "telegramDisconnect": "Disconnect Telegram",
     "telegramConnected": "Telegram connected",
@@ -51,6 +51,7 @@
     "itemUpdated": "Item updated.",
     "itemDeleted": "Item deleted.",
     "itemsTitle": "My items",
+    "itemsCount": "Items",
     "itemsLoading": "Loading items...",
     "itemsEmpty": "No items yet. Create your first note or reminder.",
     "refresh": "Refresh",
@@ -65,12 +66,7 @@
     "telegramLabel": "Telegram",
     "yes": "Yes",
     "no": "No",
-    "defaultLang": "API language",
-    "totalItems": "Total",
-    "totalReminders": "Reminders",
-    "totalNotes": "Notes",
-    "syncHint": "This profile is already shaped for the next sync steps across web, desktop, and Telegram.",
-    "syncWindowHint": "The filter helps you review notes, reminders, and recently changed records before sync.",
+    "accountHint": "Manage your account and connected services here.",
     "noReminder": "No reminder",
     "unknownError": "An unknown error occurred.",
     "validation": {
@@ -79,12 +75,6 @@
       "password": "Password must be at least 8 characters long.",
       "itemTitle": "Item title must be at least 2 characters long.",
       "remindAt": "Reminder date is invalid."
-    },
-    "meta": {
-      "idle": "Waiting for API",
-      "loading": "Checking API",
-      "ready": "API reachable",
-      "error": "API unavailable"
     }
   }
 }
